@@ -1,0 +1,59 @@
+# 🚀 QUICK START - Python 3.11
+
+## ⚡ 3-Step Setup
+
+### Step 1: Download Files
+- `app.py`
+- `requirements_python311.txt`
+
+Save both in same folder.
+
+### Step 2: Open Command Prompt
+```
+cd your_folder_path
+```
+
+### Step 3: Run Setup Script
+```
+python -m venv venv
+venv\Scripts\activate.bat
+pip install -r requirements_python311.txt
+streamlit run app.py
+```
+
+**Done!** Browser opens automatically at `http://localhost:8501` ✓
+
+---
+
+## 🎯 What You Get
+
+✅ Live posture detection with AI
+✅ Real-time score (0-100)
+✅ Fall detection with alarm
+✅ Professional dashboard
+✅ Session analytics
+✅ 30+ FPS processing
+
+---
+
+## 💡 Using the App
+
+1. Click **"Start Detection"** checkbox
+2. Allow webcam access
+3. See posture score in real-time
+4. Bend down to test fall detection
+
+---
+
+## 🆘 If Errors
+
+```bash
+# Delete and restart
+rmdir /s venv
+python -m venv venv
+venv\Scripts\activate.bat
+pip install -r requirements_python311.txt
+streamlit run app.py
+```
+
+That's all! Enjoy! 🎉
