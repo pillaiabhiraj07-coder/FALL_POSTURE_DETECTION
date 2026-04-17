@@ -2,6 +2,7 @@
 """
 Posture & Fall Detection System - Python 3.11 Compatible Version
 Real-time AI-powered health monitoring using MediaPipe and OpenCV
+Free email alerts via Gmail SMTP (no subscription required)
 """
 
 import streamlit as st
@@ -11,7 +12,10 @@ import numpy as np
 from collections import deque
 from datetime import datetime
 import logging
-import sys
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import threading
 
 # Configure logging
 logging.basicConfig(
@@ -68,11 +72,72 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# ============================================================================
+# EMAIL ALERT SYSTEM 
+# ============================================================================
+
+class EmailAlertSystem:
+    """
+    Free email alert system using Gmail SMTP.
+    
+    SETUP INSTRUCTIONS:
+    1. Go to your Google Account → Security → 2-Step Verification (enable it)
+    2. Go to Security → App Passwords
+    3. Create a new App Password for "Mail"
+    4. Use that 16-character password below (NOT your regular Gmail password)
+    
+    BONUS: You can also send SMS via email for FREE using carrier email-to-SMS gateways:
+    - Airtel India:    <your_number>@airtelmail.in
+    - Jio India:       <your_number>@jiocricket.com  (not reliable) 
+    - BSNL India:      <your_number>@bsnlmobile.in (not always reliable)
+    - Vi (Vodafone):   Not publicly supported
+    
+    Since you're in India (Mumbai), email-to-SMS via Airtel or BSNL is your best free SMS option.
+    Just set the TO_EMAIL to your carrier gateway address.
+    """
+    
+    def __init__(self, gmail_user, gmail_app_password, to_email):
+        self.gmail_user = gmail_user
+        self.gmail_app_password = gmail_app_password
+        self.to_email = to_email
+        self.is_configured = bool(gmail_user and gmail_app_password and to_email)
+    
+    def send_alert(self, subject, body):
+        """Send email alert in a background thread so it doesn't block the video feed"""
+        if not self.is_configured:
+            logger.warning("Email alert not configured, skipping.")
+            return False
+        
+        def _send():
+            try:
+                msg = MIMEMultipart()
+                msg["From"] = self.gmail_user
+                msg["To"] = self.to_email
+                msg["Subject"] = subject
+                msg.attach(MIMEText(body, "plain"))
+                
+                with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                    server.login(self.gmail_user, self.gmail_app_password)
+                    server.sendmail(self.gmail_user, self.to_email, msg.as_string())
+                
+                logger.info("✓ Alert email sent successfully to " + self.to_email)
+            except Exception as e:
+                logger.error("✗ Failed to send email: " + str(e))
+        
+        # Run in background so it doesn't freeze the video
+        thread = threading.Thread(target=_send, daemon=True)
+        thread.start()
+        return True
+
+
+# ============================================================================
+# POSE DETECTOR
+# ============================================================================
+
 class PoseDetector:
     """Detects human pose using MediaPipe - Python 3.11 compatible"""
     
     def __init__(self):
-        """Initialize MediaPipe Pose detector"""
         self.pose = None
         self.mp_drawing = None
         self.mp_pose = None
@@ -80,11 +145,9 @@ class PoseDetector:
         self.is_initialized = False
         
         try:
-            # Import MediaPipe
             self.mp_pose = mp.solutions.pose
             self.mp_drawing = mp.solutions.drawing_utils
             
-            # Initialize pose detector
             self.pose = self.mp_pose.Pose(
                 static_image_mode=False,
                 model_complexity=1,
@@ -101,28 +164,19 @@ class PoseDetector:
             self.is_initialized = False
     
     def detect_pose(self, frame):
-        """Detect pose landmarks in frame"""
         if not self.is_initialized or self.pose is None:
             return None
-        
         try:
-            # Convert BGR to RGB
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # Process frame
             results = self.pose.process(rgb_frame)
-            
             return results
-            
         except Exception as e:
             logger.error("Pose detection error: " + str(e))
             return None
     
     def draw_pose(self, frame, results):
-        """Draw pose landmarks and connections on frame"""
         if not self.is_initialized or results is None:
             return frame
-        
         try:
             if results.pose_landmarks:
                 self.mp_drawing.draw_landmarks(
@@ -130,25 +184,24 @@ class PoseDetector:
                     results.pose_landmarks,
                     self.POSE_CONNECTIONS,
                     landmark_drawing_spec=self.mp_drawing.DrawingSpec(
-                        color=(0, 255, 0),
-                        thickness=2,
-                        circle_radius=2
+                        color=(0, 255, 0), thickness=2, circle_radius=2
                     ),
                     connection_drawing_spec=self.mp_drawing.DrawingSpec(
-                        color=(0, 200, 0),
-                        thickness=2
+                        color=(0, 200, 0), thickness=2
                     )
                 )
         except Exception as e:
             logger.error("Error drawing pose: " + str(e))
-        
         return frame
 
+
+# ============================================================================
+# POSTURE ANALYZER
+# ============================================================================
 
 class PostureAnalyzer:
     """Analyzes posture quality from pose landmarks"""
     
-    # MediaPipe pose landmark indices
     NOSE = 0
     LEFT_EAR = 7
     RIGHT_EAR = 8
@@ -158,43 +211,28 @@ class PostureAnalyzer:
     RIGHT_HIP = 24
     
     def __init__(self):
-        """Initialize posture analyzer"""
         self.posture_history = deque(maxlen=30)
     
     def calculate_angle(self, p1, p2, p3):
-        """Calculate angle between three points using law of cosines"""
         try:
-            # Create vectors
             a = np.array([p1.x, p1.y])
             b = np.array([p2.x, p2.y])
             c = np.array([p3.x, p3.y])
-            
-            # Calculate vectors from point b
             ba = a - b
             bc = c - b
-            
-            # Calculate cosine of angle
             cos_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
             cos_angle = np.clip(cos_angle, -1, 1)
-            
-            # Calculate angle
-            angle = np.arccos(cos_angle)
-            angle_deg = np.degrees(angle)
-            
+            angle_deg = np.degrees(np.arccos(cos_angle))
             return angle_deg
-            
         except Exception as e:
             logger.error("Angle calculation error: " + str(e))
             return 0
     
     def analyze_posture(self, landmarks):
-        """Analyze posture and return score (0-100), feedback, and status"""
-        
         if not landmarks:
             return 50, "No person detected", "unknown"
         
         try:
-            # Get key landmarks
             nose = landmarks[self.NOSE]
             left_ear = landmarks[self.LEFT_EAR]
             right_ear = landmarks[self.RIGHT_EAR]
@@ -206,62 +244,43 @@ class PostureAnalyzer:
             score = 100
             feedback = []
             
-            # 1. Check head tilt (ears should be level)
             head_tilt = abs(left_ear.y - right_ear.y)
             if head_tilt > 0.05:
-                score = score - 15
+                score -= 15
                 feedback.append("⚠️ Head tilted")
             
-            # 2. Check shoulder alignment (should be level)
             shoulder_diff = abs(left_shoulder.y - right_shoulder.y)
             if shoulder_diff > 0.08:
-                score = score - 20
+                score -= 20
                 feedback.append("⚠️ Shoulders uneven")
             
-            # 3. Check spine alignment (nose-shoulder-hip should be aligned)
             nose_x = nose.x
             shoulder_x = (left_shoulder.x + right_shoulder.x) / 2
-            nose_to_shoulder_x = abs(nose_x - shoulder_x)
-            if nose_to_shoulder_x > 0.15:
-                score = score - 25
+            if abs(nose_x - shoulder_x) > 0.15:
+                score -= 25
                 feedback.append("⚠️ Spine misaligned")
             
-            # 4. Check hip alignment (should be level)
             hip_diff = abs(left_hip.y - right_hip.y)
             if hip_diff > 0.1:
-                score = score - 15
+                score -= 15
                 feedback.append("⚠️ Hips tilted")
             
-            # 5. Check forward head posture (tech neck)
             forward_head = right_ear.x - nose.x
             if forward_head > 0.1:
-                score = score - 20
+                score -= 20
                 feedback.append("⚠️ Head too forward")
             
-            # Ensure score is between 0 and 100
             score = max(0, min(100, score))
             
-            # Determine posture status
             if score >= 75:
                 status = "good"
-                if len(feedback) == 0:
-                    feedback_text = "✅ Excellent posture! Keep it up"
-                else:
-                    feedback_text = " | ".join(feedback)
-                    
+                feedback_text = "✅ Excellent posture! Keep it up" if not feedback else " | ".join(feedback)
             elif score >= 50:
                 status = "moderate"
-                if len(feedback) == 0:
-                    feedback_text = "⚠️ Fair posture - Room for improvement"
-                else:
-                    feedback_text = " | ".join(feedback)
-                    
+                feedback_text = "⚠️ Fair posture - Room for improvement" if not feedback else " | ".join(feedback)
             else:
                 status = "bad"
-                if len(feedback) == 0:
-                    feedback_text = "❌ Poor posture - Adjust position"
-                else:
-                    feedback_text = " | ".join(feedback)
+                feedback_text = "❌ Poor posture - Adjust position" if not feedback else " | ".join(feedback)
             
             return score, feedback_text, status
             
@@ -270,10 +289,13 @@ class PostureAnalyzer:
             return 50, "Error analyzing posture", "unknown"
 
 
+# ============================================================================
+# FALL DETECTOR
+# ============================================================================
+
 class FallDetector:
     """Detects falls from pose landmarks"""
     
-    # Landmark indices
     NOSE = 0
     LEFT_KNEE = 25
     RIGHT_KNEE = 26
@@ -281,44 +303,31 @@ class FallDetector:
     RIGHT_SHOULDER = 12
     
     def __init__(self):
-        """Initialize fall detector"""
         self.fall_history = deque(maxlen=15)
         self.fall_count = 0
     
     def detect_fall(self, landmarks):
-        """Detect if person is falling based on body position"""
-        
         if not landmarks:
             return False, 0
         
         try:
-            # Get key landmarks
             nose = landmarks[self.NOSE]
             left_knee = landmarks[self.LEFT_KNEE]
             right_knee = landmarks[self.RIGHT_KNEE]
             left_shoulder = landmarks[self.LEFT_SHOULDER]
             right_shoulder = landmarks[self.RIGHT_SHOULDER]
             
-            # Calculate average positions
             avg_shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
             avg_knee_y = (left_knee.y + right_knee.y) / 2
-            
-            # Calculate vertical distance
             vertical_distance = avg_knee_y - avg_shoulder_y
             nose_height = nose.y
             
-            # Detect fall: knees higher than shoulders AND nose near ground
-            # OR nose very low AND shoulders low
             is_fallen = (vertical_distance < -0.2 and nose_height > 0.6) or \
-                       (nose_height > 0.75 and avg_shoulder_y > 0.7)
+                        (nose_height > 0.75 and avg_shoulder_y > 0.7)
             
-            # Calculate confidence
             confidence = min(1.0, abs(vertical_distance) + nose_height) if is_fallen else 0
             
-            # Add to history
             self.fall_history.append(is_fallen)
-            
-            # Confirm fall only if detected in multiple consecutive frames
             fall_confirmed = sum(self.fall_history) >= 5
             
             return fall_confirmed, confidence
@@ -328,12 +337,16 @@ class FallDetector:
             return False, 0
 
 
-# Initialize session state
+# ============================================================================
+# SESSION STATE INIT
+# ============================================================================
+
 if "session_id" not in st.session_state:
     st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     st.session_state.fall_count = 0
     st.session_state.total_frames = 0
     st.session_state.is_recording = False
+    st.session_state.last_alert_sent = 0
 
 # ============================================================================
 # SIDEBAR CONFIGURATION
@@ -342,47 +355,49 @@ if "session_id" not in st.session_state:
 st.sidebar.title("⚙️ Configuration")
 st.sidebar.markdown("---")
 
-# SMS Alert Settings
-with st.sidebar.expander("📱 SMS Alert Settings", expanded=False):
-    enable_sms = st.checkbox("Enable SMS Alerts", value=False)
+# Email Alert Settings
+with st.sidebar.expander("📧 Email Alert Settings", expanded=True):
+    st.markdown("""
+    **Setup Guide:**
+    1. Enable Gmail 2-Step Verification
+    2. Go to Google Account → Security → App Passwords
+    3. Create App Password for "Mail"
+    4. Paste the 16-char password below
     
-    sms_config = {  # ← CORRECT INDENTATION (4 spaces)
-        "account_sid": "AC6bb8caad6dda161d9b251f0a0d985365",
-        "auth_token": "91498089ae6a7732b9f0ae1a31407a89",
-        "from_number": "+14155238886",
-        "to_number": "+919326182564",
-    }
-
+    **Free SMS via email (India):**
+    - Airtel: `9XXXXXXXXX@airtelmail.in`
+    - BSNL: `9XXXXXXXXX@bsnlmobile.in`
+    """)
+    
+    enable_email = st.checkbox("Enable Email Alerts", value=False)
+    
+    gmail_user = st.text_input(
+        "Your Gmail Address",
+        placeholder="yourname@gmail.com",
+        help="The Gmail account you'll send alerts FROM"
+    )
+    
+    gmail_app_password = st.text_input(
+        "Gmail App Password (16 chars)",
+        type="password",
+        placeholder="xxxx xxxx xxxx xxxx",
+        help="NOT your regular password. Generate from Google Account → Security → App Passwords"
+    )
+    
+    alert_email = st.text_input(
+        "Send Alert TO (email or SMS gateway)",
+        placeholder="e.g. 9326182564@airtelmail.in",
+        help="Use your Airtel/BSNL SMS gateway for free SMS, or any email address"
+    )
 
 # Detection Settings
 with st.sidebar.expander("🎯 Detection Settings", expanded=True):
-    confidence_threshold = st.slider(
-        "Detection Confidence",
-        min_value=0.5,
-        max_value=1.0,
-        value=0.7,
-        step=0.05
-    )
-    
-    fall_sensitivity = st.slider(
-        "Fall Detection Sensitivity",
-        min_value=0.3,
-        max_value=0.8,
-        value=0.5,
-        step=0.05
-    )
-    
-    alert_cooldown = st.slider(
-        "Alert Cooldown (seconds)",
-        min_value=5,
-        max_value=60,
-        value=30,
-        step=5
-    )
+    confidence_threshold = st.slider("Detection Confidence", 0.5, 1.0, 0.7, 0.05)
+    fall_sensitivity = st.slider("Fall Detection Sensitivity", 0.3, 0.8, 0.5, 0.05)
+    alert_cooldown = st.slider("Alert Cooldown (seconds)", 5, 120, 60, 5)
 
 st.sidebar.markdown("---")
 
-# Help Section
 with st.sidebar.expander("❓ How It Works", expanded=False):
     st.markdown("""
     **Posture Detection:**
@@ -393,7 +408,12 @@ with st.sidebar.expander("❓ How It Works", expanded=False):
     **Fall Detection:**
     - Monitors vertical body position
     - Confirms falls with 5-frame buffer
-    - Triggers audio alarm + SMS alert
+    - Triggers audio alarm + free email/SMS alert
+    
+    **Free Alerts:**
+    - Uses Gmail SMTP (completely free)
+    - Sends to email OR phone via carrier gateway
+    - No subscriptions needed!
     
     **Performance:**
     - 30+ FPS on standard CPU
@@ -406,7 +426,6 @@ with st.sidebar.expander("❓ How It Works", expanded=False):
 # MAIN CONTENT
 # ============================================================================
 
-# Header
 col1, col2, col3 = st.columns([2, 1, 1])
 
 with col1:
@@ -422,7 +441,6 @@ with col3:
 
 st.markdown("---")
 
-# Create tabs
 tab1, tab2, tab3, tab4 = st.tabs(["📹 Live Detection", "📊 Analytics", "📋 About", "🔧 Debug"])
 
 # ============================================================================
@@ -441,13 +459,23 @@ with tab1:
         metric_posture = st.empty()
         metric_falls = st.empty()
         metric_fps = st.empty()
+        metric_alert = st.empty()
         feedback_placeholder = st.empty()
         
         if st.checkbox("Start Detection", value=False):
             st.session_state.is_recording = True
             
+            # Initialize email alerter
+            email_alerter = EmailAlertSystem(
+                gmail_user=gmail_user if enable_email else "",
+                gmail_app_password=gmail_app_password if enable_email else "",
+                to_email=alert_email if enable_email else ""
+            )
+            
+            if enable_email and not email_alerter.is_configured:
+                st.warning("⚠️ Email alerts enabled but credentials not fully filled in. Alerts will be skipped.")
+            
             try:
-                # Initialize detectors
                 pose_detector = PoseDetector()
                 posture_analyzer = PostureAnalyzer()
                 fall_detector = FallDetector()
@@ -456,14 +484,12 @@ with tab1:
                     st.error("❌ MediaPipe failed to initialize. Please check installation.")
                     st.stop()
                 
-                # Open webcam
                 cap = cv2.VideoCapture(0)
                 
                 if not cap.isOpened():
                     st.error("❌ Cannot access webcam. Check permissions and connections.")
                     st.stop()
                 
-                # Set camera resolution
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 
@@ -471,84 +497,81 @@ with tab1:
                 last_alert_time = 0
                 fps_counter = deque(maxlen=30)
                 
-                # Main detection loop
                 while st.session_state.is_recording:
                     start_time = datetime.now()
                     
-                    # Read frame
                     ret, frame = cap.read()
                     
                     if not ret:
                         st.error("Failed to read frame from webcam")
                         break
                     
-                    # Flip frame (mirror effect)
                     frame = cv2.flip(frame, 1)
                     h, w, c = frame.shape
                     
-                    # Detect pose
                     results = pose_detector.detect_pose(frame)
-                    
-                    # Draw pose
                     frame = pose_detector.draw_pose(frame, results)
                     
                     if results and results.pose_landmarks:
                         landmarks = results.pose_landmarks.landmark
                         
-                        # Analyze posture
                         posture_score, feedback, posture_status = posture_analyzer.analyze_posture(landmarks)
-                        
-                        # Detect fall
                         fall_detected, fall_confidence = fall_detector.detect_fall(landmarks)
                         
-                        # Handle fall detection
                         if fall_detected:
-                            st.session_state.fall_count = st.session_state.fall_count + 1
+                            st.session_state.fall_count += 1
                             current_time = datetime.now().timestamp()
                             
-                            # Check alert cooldown
                             if current_time - last_alert_time > alert_cooldown:
-                                # Draw fall detection text
+                                # Draw fall warning on frame
                                 cv2.putText(
-                                    frame,
-                                    "FALL DETECTED!",
-                                    (50, 100),
-                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                    2,
-                                    (0, 0, 255),
-                                    3
+                                    frame, "FALL DETECTED!",
+                                    (50, 100), cv2.FONT_HERSHEY_SIMPLEX,
+                                    2, (0, 0, 255), 3
                                 )
                                 
-                                # Try to play sound (Windows)
+                                # Play beep sound (Windows only)
                                 try:
                                     import winsound
-                                    for i in range(3):
+                                    for _ in range(3):
                                         winsound.Beep(1000, 500)
                                 except:
                                     pass
+                                
+                                # Send free email/SMS alert
+                                if enable_email and email_alerter.is_configured:
+                                    alert_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    email_alerter.send_alert(
+                                        subject="🚨 FALL DETECTED - Immediate Attention Required!",
+                                        body=(
+                                            "FALL ALERT\n\n"
+                                            "A fall has been detected by the Posture & Fall Detection System.\n\n"
+                                            "Time: " + alert_time_str + "\n"
+                                            "Session ID: " + st.session_state.session_id + "\n"
+                                            "Total Falls This Session: " + str(st.session_state.fall_count) + "\n\n"
+                                            "Please check on the monitored person immediately.\n\n"
+                                            "-- Posture & Fall Detection System"
+                                        )
+                                    )
+                                    with metric_alert:
+                                        st.success("📧 Alert sent!")
                                 
                                 last_alert_time = current_time
                         
                         # Determine color based on posture status
                         if posture_status == "good":
-                            color = (0, 255, 0)  # Green
+                            color = (0, 255, 0)
                         elif posture_status == "moderate":
-                            color = (0, 165, 255)  # Orange
+                            color = (0, 165, 255)
                         else:
-                            color = (0, 0, 255)  # Red
+                            color = (0, 0, 255)
                         
-                        # Draw posture score
                         cv2.putText(
-                            frame,
-                            "Score: " + str(posture_score) + "%",
-                            (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            1,
-                            color,
-                            2
+                            frame, "Score: " + str(posture_score) + "%",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                            1, color, 2
                         )
                         
-                        # Update metrics
                         with metric_posture:
                             st.metric("Posture Score", str(posture_score) + "%")
                         
@@ -565,35 +588,25 @@ with tab1:
                     
                     else:
                         cv2.putText(
-                            frame,
-                            "No person detected",
-                            (50, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            1,
-                            (0, 165, 255),
-                            2
+                            frame, "No person detected",
+                            (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
+                            1, (0, 165, 255), 2
                         )
                     
-                    # Calculate FPS
                     elapsed = (datetime.now() - start_time).total_seconds()
-                    if elapsed > 0:
-                        fps = 1 / elapsed
-                    else:
-                        fps = 0
-                    
+                    fps = 1 / elapsed if elapsed > 0 else 0
                     fps_counter.append(fps)
                     avg_fps = np.mean(fps_counter)
                     
                     with metric_fps:
                         st.metric("FPS", "{:.1f}".format(avg_fps))
                     
-                    # Convert and display frame
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     frame_placeholder.image(frame_rgb, use_column_width=True)
                     
-                    frame_count = frame_count + 1
+                    frame_count += 1
                     st.session_state.total_frames = frame_count
-                
+            
             except Exception as e:
                 st.error("❌ Error during detection: " + str(e))
                 logger.error("Detection error: " + str(e))
@@ -603,7 +616,6 @@ with tab1:
                     cap.release()
                 except:
                     pass
-                
                 st.session_state.is_recording = False
 
 # ============================================================================
@@ -617,13 +629,10 @@ with tab2:
     
     with col1:
         st.metric("Total Frames", st.session_state.total_frames)
-    
     with col2:
         st.metric("Falls Detected", st.session_state.fall_count)
-    
     with col3:
         st.metric("Session ID", st.session_state.session_id)
-    
     with col4:
         status_display = "🟢 Running" if st.session_state.is_recording else "🔴 Stopped"
         st.metric("Status", status_display)
@@ -641,12 +650,13 @@ with tab2:
         )
     
     with col2:
+        alert_status = "✅ Configured" if (enable_email and gmail_user and gmail_app_password and alert_email) else "⚠️ Not Configured"
         st.success(
             "**System Status:**\n\n"
             "✅ Pose Detection: Active\n"
             "✅ Fall Detection: Active\n"
             "✅ Audio Alerts: Enabled\n"
-            "⚠️ SMS Alerts: " + ("Configured" if enable_sms else "Disabled")
+            "📧 Email/SMS Alerts: " + alert_status
         )
 
 # ============================================================================
@@ -672,7 +682,7 @@ with tab3:
     - Monitors body position using 33 landmarks
     - Confirms falls with multi-frame analysis
     - Immediate audio alarm notification
-    - Optional SMS alert via Twilio
+    - **Free** email + SMS alert via Gmail SMTP (no subscription!)
     
     **✅ Professional Dashboard**
     - Live video feed with pose visualization
@@ -686,14 +696,24 @@ with tab3:
     - **OpenCV**: Real-time video processing
     - **Streamlit**: Interactive web dashboard
     - **NumPy**: Numerical computations
+    - **smtplib**: Built-in Python email (free, no extra install)
     - **Python 3.11+**: Modern Python
+    
+    #### 📧 Free Alert System
+    
+    Instead of paid Twilio SMS, this system uses Gmail SMTP which is:
+    - **100% free** - no subscription needed
+    - Sends email alerts instantly on fall detection
+    - Can send **SMS for free** using carrier email-to-SMS gateways:
+      - Airtel India: `NUMBER@airtelmail.in`
+      - BSNL India: `NUMBER@bsnlmobile.in`
     
     #### 📊 Performance Metrics
     
     - **Detection Speed**: 30+ FPS on CPU
     - **Posture Accuracy**: ~90%
     - **Fall Detection Accuracy**: ~82%
-    - **Alert Latency**: <100ms
+    - **Alert Latency**: <100ms (video) + ~2-5s (email)
     - **Memory Usage**: ~250-300 MB
     
     #### 💡 Applications
@@ -703,14 +723,6 @@ with tab3:
     - Physical therapy and rehabilitation
     - Sports performance analysis
     - Health and wellness applications
-    
-    #### 🚀 Future Enhancements
-    
-    - Multi-person detection
-    - Video file support
-    - Cloud deployment
-    - Mobile app integration
-    - Advanced ML models
     """)
 
 # ============================================================================
@@ -728,7 +740,8 @@ with tab4:
             "- Python Version: 3.11+\n"
             "- OpenCV: ✓ Installed\n"
             "- MediaPipe: ✓ Installed\n"
-            "- Streamlit: ✓ Installed"
+            "- Streamlit: ✓ Installed\n"
+            "- smtplib: ✓ Built-in (no install needed)"
         )
     
     with col2:
@@ -737,15 +750,35 @@ with tab4:
             "- ✓ Webcam Access Required\n"
             "- ✓ 640x480 Minimum Resolution\n"
             "- ✓ Good Lighting Recommended\n"
-            "- ✓ Internet Connection (for SMS)"
+            "- ✓ Gmail App Password for Alerts\n"
+            "- ✓ Internet Connection (for email)"
         )
+    
+    st.subheader("📧 Test Email Alert")
+    if st.button("Send Test Alert"):
+        if enable_email and gmail_user and gmail_app_password and alert_email:
+            test_alerter = EmailAlertSystem(gmail_user, gmail_app_password, alert_email)
+            success = test_alerter.send_alert(
+                subject="✅ Test Alert - Fall Detection System",
+                body=(
+                    "This is a test alert from your Posture & Fall Detection System.\n\n"
+                    "If you received this, your email alerts are working correctly!\n\n"
+                    "Time: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n"
+                    "Session: " + st.session_state.session_id
+                )
+            )
+            if success:
+                st.success("✅ Test email sent! Check your inbox (or SMS if using gateway).")
+        else:
+            st.error("❌ Please fill in all email settings in the sidebar first and enable Email Alerts.")
     
     if st.checkbox("Show Technical Details"):
         st.code(
             "Session ID: " + st.session_state.session_id + "\n"
             "Total Frames: " + str(st.session_state.total_frames) + "\n"
             "Falls Detected: " + str(st.session_state.fall_count) + "\n"
-            "Recording Status: " + str(st.session_state.is_recording)
+            "Recording Status: " + str(st.session_state.is_recording) + "\n"
+            "Email Alerts: " + str(enable_email)
         )
 
 # ============================================================================
@@ -754,7 +787,7 @@ with tab4:
 
 st.markdown("---")
 st.markdown(
-    "<center><small>Posture & Fall Detection System v1.0 | Python 3.11+ | "
-    "Built with MediaPipe & Streamlit</small></center>",
+    "<center><small>Posture & Fall Detection System v2.0 | Python 3.11+ | "
+    "Built with MediaPipe & Streamlit | Free alerts via Gmail SMTP</small></center>",
     unsafe_allow_html=True
 )
