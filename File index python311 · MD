@@ -97,6 +97,7 @@ You should also get **3 helper files**:
 app.py
 ├── Imports & Configuration
 ├── Custom CSS (Dark Theme)
+├── EMAIL ALERT SYSTEM 
 ├── PoseDetector Class
 │   ├── initialize()
 │   ├── detect_pose()
