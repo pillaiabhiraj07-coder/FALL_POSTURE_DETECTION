@@ -26,6 +26,8 @@ The entire system is wrapped in an interactive **Streamlit dashboard** for live 
 ---
 
 ## 📁 Project Structure
+
+```bash
 FALL_POSTURE_DETECTION/
 │
 ├── .vscode/                    # VS Code workspace settings
@@ -42,6 +44,8 @@ FALL_POSTURE_DETECTION/
 ├── Quick start python311.TXT   # Quick start guide for Python 3.11
 ├── Setup python311.MD          # Detailed Python 3.11 setup instructions
 └── README.md                   # This file
+
+```
 ---
 
 ## ✨ Features
