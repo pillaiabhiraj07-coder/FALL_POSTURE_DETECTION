@@ -253,6 +253,7 @@ A fall is **confirmed** (and alert triggered) only when **5 or more** of the las
 
 ### Alert Flow
 
+```bash
 Fall Confirmed
 │
 ▼
@@ -273,6 +274,7 @@ Send email / SMS gateway alert
 │
 ▼
 Update last_alert_time → reset cooldown
+```
 ---
 
 ## 📊 Project Files — What Each File Does
