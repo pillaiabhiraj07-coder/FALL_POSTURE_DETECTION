@@ -206,7 +206,7 @@ This system uses **Gmail SMTP** — completely free with no Twilio or third-part
    - Instant feedback (good / moderate / poor) below the metrics
 
 ---
-
+```bash
 ## 📐 How It Works
 
 ### Posture Scoring Algorithm
@@ -220,6 +220,8 @@ The analyzer checks 5 alignment criteria using normalized landmark coordinates (
 | Spine Misalignment | Nose X vs Shoulder Midpoint X | > 0.15 | −25 pts |
 | Hip Tilt | Left Hip Y vs Right Hip Y | > 0.10 | −15 pts |
 | Forward Head | Right Ear X vs Nose X | > 0.10 | −20 pts |
+
+```
 
 **Scoring interpretation:**
 
