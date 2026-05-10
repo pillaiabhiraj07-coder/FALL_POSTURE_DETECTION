@@ -206,11 +206,12 @@ This system uses **Gmail SMTP** — completely free with no Twilio or third-part
    - Instant feedback (good / moderate / poor) below the metrics
 
 ---
-```bash
+
 ## 📐 How It Works
 
 ### Posture Scoring Algorithm
 
+```bash
 The analyzer checks 5 alignment criteria using normalized landmark coordinates (0.0–1.0):
 
 | Check | Landmark Pair | Threshold | Penalty |
