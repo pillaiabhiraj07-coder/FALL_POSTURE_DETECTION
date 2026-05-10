@@ -211,7 +211,7 @@ This system uses **Gmail SMTP** — completely free with no Twilio or third-part
 
 ### Posture Scoring Algorithm
 
-```bash
+
 The analyzer checks 5 alignment criteria using normalized landmark coordinates (0.0–1.0):
 
 | Check | Landmark Pair | Threshold | Penalty |
@@ -222,7 +222,7 @@ The analyzer checks 5 alignment criteria using normalized landmark coordinates (
 | Hip Tilt | Left Hip Y vs Right Hip Y | > 0.10 | −15 pts |
 | Forward Head | Right Ear X vs Nose X | > 0.10 | −20 pts |
 
-```
+---
 
 **Scoring interpretation:**
 
